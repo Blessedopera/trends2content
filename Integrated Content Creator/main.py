@@ -402,76 +402,349 @@ class IntegratedContentCreator:
     def scrape_with_requests(self, url):
         """Fallback scraping method using requests"""
         try:
+            # Multiple user agents to rotate
+            user_agents = [
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15'
+            ]
+            
+            import random
+            selected_ua = random.choice(user_agents)
+            
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5',
-                'Accept-Encoding': 'gzip, deflate',
+                'User-Agent': selected_ua,
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
                 'Connection': 'keep-alive',
                 'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'DNT': '1',
+                'Cache-Control': 'max-age=0',
+                'Referer': 'https://www.google.com/'
             }
             
-            response = requests.get(url, headers=headers, timeout=30)
+            # Create session for cookie persistence
+            session = requests.Session()
+            session.headers.update(headers)
+            
+            # First request
+            response = session.get(url, timeout=30, allow_redirects=True)
             response.raise_for_status()
+            
+            # Check if we got redirected to anti-bot page
+            if self.is_anti_bot_page(response.text):
+                # Try with different headers and delay
+                import time
+                time.sleep(2)
+                
+                # Update headers to look more human
+                session.headers.update({
+                    'User-Agent': random.choice(user_agents),
+                    'Referer': url
+                })
+                
+                response = session.get(url, timeout=30, allow_redirects=True)
+                response.raise_for_status()
+            
             return response.text
         except Exception as e:
             raise Exception(f"Requests scraping failed: {str(e)}")
     
     async def scrape_article_html(self, url):
+        """
+        Bulletproof web scraping with multiple anti-bot bypass techniques
+        """
         async with async_playwright() as p:
+            # Launch browser with stealth mode
             browser = await p.chromium.launch(
-                headless=True,
-                args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+                headless=False,  # Use visible browser to avoid headless detection
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-features=VizDisplayCompositor',
+                    '--disable-extensions',
+                    '--no-first-run',
+                    '--disable-default-apps',
+                    '--disable-infobars',
+                    '--window-size=1920,1080',
+                    '--start-maximized'
+                ]
             )
-            page = await browser.new_page(user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
-            ))
             
-            # Set longer timeout and try multiple strategies
+            # Create context with realistic settings
+            context = await browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                locale='en-US',
+                timezone_id='America/New_York',
+                permissions=['geolocation'],
+                extra_http_headers={
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'DNT': '1',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1',
+                    'Sec-Fetch-Dest': 'document',
+                    'Sec-Fetch-Mode': 'navigate',
+                    'Sec-Fetch-Site': 'none',
+                    'Sec-Fetch-User': '?1',
+                    'Cache-Control': 'max-age=0'
+                }
+            )
+            
+            page = await context.new_page()
+            
+            # Add stealth scripts to avoid detection
+            await page.add_init_script("""
+                // Remove webdriver property
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined,
+                });
+                
+                // Mock plugins
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5],
+                });
+                
+                // Mock languages
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['en-US', 'en'],
+                });
+                
+                // Mock permissions
+                const originalQuery = window.navigator.permissions.query;
+                window.navigator.permissions.query = (parameters) => (
+                    parameters.name === 'notifications' ?
+                        Promise.resolve({ state: Notification.permission }) :
+                        originalQuery(parameters)
+                );
+                
+                // Mock chrome runtime
+                window.chrome = {
+                    runtime: {},
+                };
+            """)
+            
             try:
-                await page.goto(url, wait_until='networkidle', timeout=60000)  # 60 seconds
+                # Navigate with realistic behavior
+                self.update_process_status("Loading page with stealth mode...")
+                await page.goto(url, wait_until='domcontentloaded', timeout=60000)
+                
+                # Wait for initial load
                 await page.wait_for_timeout(3000)
-            except Exception as e:
-                # If networkidle fails, try with domcontentloaded
+                
+                # Check for common anti-bot elements and handle them
+                await self.handle_anti_bot_measures(page)
+                
+                # Wait for content to fully load
+                await page.wait_for_timeout(5000)
+                
+                # Try to find and click "I'm not a robot" if present
                 try:
-                    await page.goto(url, wait_until='domcontentloaded', timeout=45000)  # 45 seconds
-                    await page.wait_for_timeout(5000)  # Wait a bit longer for content
-                except Exception as e2:
-                    # Last resort - try with load event
-                    await page.goto(url, wait_until='load', timeout=30000)  # 30 seconds
-                    await page.wait_for_timeout(2000)
+                    captcha_frame = page.frame_locator('iframe[src*="recaptcha"]')
+                    if await captcha_frame.locator('.recaptcha-checkbox').is_visible(timeout=2000):
+                        self.update_process_status("Detected CAPTCHA, attempting to solve...")
+                        await captcha_frame.locator('.recaptcha-checkbox').click()
+                        await page.wait_for_timeout(3000)
+                except:
+                    pass
+                
+                # Scroll to simulate human behavior
+                await page.evaluate("window.scrollTo(0, document.body.scrollHeight/4)")
+                await page.wait_for_timeout(1000)
+                await page.evaluate("window.scrollTo(0, document.body.scrollHeight/2)")
+                await page.wait_for_timeout(1000)
+                await page.evaluate("window.scrollTo(0, 0)")
+                await page.wait_for_timeout(2000)
+                
+                # Get final content
+                html_content = await page.content()
+                
+                # Check if we got a real article or anti-bot page
+                if self.is_anti_bot_page(html_content):
+                    self.update_process_status("Anti-bot page detected, trying alternative method...")
+                    # Try with different approach
+                    await page.reload(wait_until='networkidle', timeout=30000)
+                    await page.wait_for_timeout(8000)  # Longer wait
+                    html_content = await page.content()
+                
+                await browser.close()
+                return html_content
+                
+            except Exception as e:
+                await browser.close()
+                raise Exception(f"Playwright scraping failed: {str(e)}")
+    
+    async def handle_anti_bot_measures(self, page):
+        """Handle common anti-bot protection measures"""
+        try:
+            # Check for Cloudflare challenge
+            if await page.locator('text="Checking your browser"').is_visible(timeout=2000):
+                self.update_process_status("Cloudflare detected, waiting for challenge...")
+                await page.wait_for_timeout(10000)  # Wait for Cloudflare to complete
             
-            html_content = await page.content()
-            await browser.close()
+            # Check for "Verify you are human" buttons
+            verify_selectors = [
+                'button:has-text("Verify")',
+                'button:has-text("Continue")',
+                'input[type="checkbox"][id*="human"]',
+                '.verification-button',
+                '#challenge-form button'
+            ]
             
-            return html_content
+            for selector in verify_selectors:
+                try:
+                    if await page.locator(selector).is_visible(timeout=1000):
+                        self.update_process_status(f"Found verification element, clicking...")
+                        await page.locator(selector).click()
+                        await page.wait_for_timeout(3000)
+                        break
+                except:
+                    continue
+                    
+            # Handle cookie consent
+            cookie_selectors = [
+                'button:has-text("Accept")',
+                'button:has-text("Allow")',
+                'button:has-text("I agree")',
+                '.cookie-accept',
+                '#cookie-accept'
+            ]
+            
+            for selector in cookie_selectors:
+                try:
+                    if await page.locator(selector).is_visible(timeout=1000):
+                        await page.locator(selector).click()
+                        await page.wait_for_timeout(1000)
+                        break
+                except:
+                    continue
+                    
+        except Exception as e:
+            # Continue even if anti-bot handling fails
+            pass
+    
+    def is_anti_bot_page(self, html_content):
+        """Check if the page is an anti-bot protection page"""
+        anti_bot_indicators = [
+            'verify you are human',
+            'security check',
+            'checking your browser',
+            'cloudflare',
+            'please enable javascript',
+            'captcha',
+            'bot protection',
+            'access denied',
+            'blocked',
+            'reference id',
+            'ray id'
+        ]
+        
+        content_lower = html_content.lower()
+        return any(indicator in content_lower for indicator in anti_bot_indicators)
     
     def extract_main_content(self, html_content):
+        """Enhanced content extraction with better article detection"""
         soup = BeautifulSoup(html_content, 'html.parser')
         
+        # First check if this is an anti-bot page
+        if self.is_anti_bot_page(html_content):
+            raise Exception("Unable to bypass anti-bot protection. The page is showing a security verification screen.")
+        
         # Remove unwanted elements
-        for element in soup(['script', 'style', 'nav', 'header', 'footer', 'aside']):
+        for element in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'advertisement', 'ads', 'social-share']):
             element.decompose()
         
-        # Try to find main content
+        # Enhanced content selectors (more comprehensive)
         content_selectors = [
-            'article', '[role="main"]', 'main', '.article-content',
-            '.post-content', '.entry-content', '.content', '#content'
+            'article',
+            '[role="main"]', 
+            'main',
+            '.article-content',
+            '.article-body',
+            '.post-content',
+            '.entry-content',
+            '.story-content',
+            '.story-body',
+            '.content',
+            '#content',
+            '.text-content',
+            '.article-text',
+            '.post-body',
+            '.entry-body',
+            '[data-module="ArticleBody"]',
+            '.paywall-article',
+            '.article-wrap'
         ]
         
         main_content = None
+        max_content_length = 0
+        
+        # Try each selector and pick the one with most content
         for selector in content_selectors:
             elements = soup.select(selector)
-            if elements:
-                main_content = elements[0]
-                break
+            for element in elements:
+                text_length = len(element.get_text(strip=True))
+                if text_length > max_content_length and text_length > 200:
+                    max_content_length = text_length
+                    main_content = element
+        
+        # If no specific content area found, try to find the largest text block
+        if not main_content:
+            # Look for divs/sections with substantial text content
+            all_elements = soup.find_all(['div', 'section', 'p'])
+            best_element = None
+            max_text_length = 0
+            
+            for element in all_elements:
+                # Skip elements that are likely not article content
+                if element.get('class'):
+                    classes = ' '.join(element.get('class')).lower()
+                    if any(skip in classes for skip in ['nav', 'menu', 'sidebar', 'footer', 'header', 'ad', 'social']):
+                        continue
+                
+                text = element.get_text(strip=True)
+                if len(text) > max_text_length and len(text) > 500:
+                    max_text_length = len(text)
+                    best_element = element
+            
+            main_content = best_element or soup.find('body') or soup
         
         if not main_content:
-            main_content = soup.find('body') or soup
+            raise Exception("Could not find article content on the page")
         
+        # Extract and clean text
         text = main_content.get_text(separator=' ', strip=True)
+        
+        # Enhanced text cleaning
         text = re.sub(r'\s+', ' ', text)
+        text = re.sub(r'\n+', '\n', text)
+        
+        # Remove common non-article text patterns
+        patterns_to_remove = [
+            r'Subscribe to.*?newsletter',
+            r'Sign up for.*?updates',
+            r'Follow us on.*?social media',
+            r'Share this article',
+            r'Related articles?:.*',
+            r'Advertisement',
+            r'Sponsored content',
+            r'Cookie policy',
+            r'Terms of service',
+            r'Privacy policy'
+        ]
+        
+        for pattern in patterns_to_remove:
+            text = re.sub(pattern, '', text, flags=re.IGNORECASE)
         
         return text.strip()
     
