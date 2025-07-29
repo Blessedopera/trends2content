@@ -361,8 +361,9 @@ class IntegratedContentCreator:
             self.update_process_status("Article processed successfully! Review the summary and create a blog post.")
             
         except Exception as e:
-            self.update_process_status(f"Error: {str(e)}")
-            self.root.after(0, lambda: messagebox.showerror("Error", f"Processing failed: {str(e)}"))
+            error_msg = str(e)
+            self.update_process_status(f"Error: {error_msg}")
+            self.root.after(0, lambda: messagebox.showerror("Error", f"Processing failed: {error_msg}"))
     
     async def scrape_article_html(self, url):
         async with async_playwright() as p:
@@ -486,9 +487,10 @@ class IntegratedContentCreator:
             self.root.after(0, lambda: messagebox.showinfo("Success", f"Blog post created and saved as {filename}"))
             
         except Exception as e:
-            self.root.after(0, lambda: self.blog_status.config(text=f"Error: {str(e)}"))
+            error_msg = str(e)
+            self.root.after(0, lambda: self.blog_status.config(text=f"Error: {error_msg}"))
             self.root.after(0, lambda: self.blog_button.config(state="normal"))
-            self.root.after(0, lambda: messagebox.showerror("Error", f"Blog post creation failed: {str(e)}"))
+            self.root.after(0, lambda: messagebox.showerror("Error", f"Blog post creation failed: {error_msg}"))
 
 def main():
     root = tk.Tk()
