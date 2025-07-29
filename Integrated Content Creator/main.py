@@ -24,11 +24,8 @@ class IntegratedContentCreator:
         self.openrouter_api_key = "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"
         self.model_name = "qwen/qwen3-coder:free"
         
-        # Initialize OpenRouter client
-        self.openrouter_client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=self.openrouter_api_key,
-        )
+        # Initialize OpenRouter client - will be created when needed
+        self.openrouter_client = None
         
         # Variables to store data between steps
         self.articles_data = []
@@ -38,6 +35,19 @@ class IntegratedContentCreator:
         self.blog_post_counter = 1
         
         self.setup_ui()
+        
+    def get_openrouter_client(self):
+        """Get or create OpenRouter client with proper authentication"""
+        if self.openrouter_client is None:
+            self.openrouter_client = OpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=self.openrouter_api_key,
+                default_headers={
+                    "HTTP-Referer": "https://integrated-content-creator.com",
+                    "X-Title": "Integrated Content Creator"
+                }
+            )
+        return self.openrouter_client
         
     def setup_ui(self):
         # Create notebook for tabs
@@ -471,7 +481,8 @@ class IntegratedContentCreator:
     
     def generate_summary(self, article_text):
         try:
-            completion = self.openrouter_client.chat.completions.create(
+            client = self.get_openrouter_client()
+            completion = client.chat.completions.create(
                 model=self.model_name,
                 messages=[
                     {
@@ -488,7 +499,7 @@ class IntegratedContentCreator:
             )
             return completion.choices[0].message.content
         except Exception as e:
-            raise Exception(f"Error generating summary: {e}")
+            raise Exception(f"Error generating summary: {str(e)}")
     
     def update_process_status(self, message):
         self.root.after(0, lambda: self.process_status.config(text=message))
@@ -511,7 +522,8 @@ class IntegratedContentCreator:
             # Extract original article text again for blog post creation
             article_text = self.extract_main_content(self.article_html)
             
-            completion = self.openrouter_client.chat.completions.create(
+            client = self.get_openrouter_client()
+            completion = client.chat.completions.create(
                 model=self.model_name,
                 messages=[
                     {
