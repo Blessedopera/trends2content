@@ -42,10 +42,6 @@ class IntegratedContentCreator:
             self.openrouter_client = OpenAI(
                 base_url="https://openrouter.ai/api/v1",
                 api_key=self.openrouter_api_key,
-                default_headers={
-                    "HTTP-Referer": "https://integrated-content-creator.com",
-                    "X-Title": "Integrated Content Creator"
-                }
             )
         return self.openrouter_client
         
@@ -483,6 +479,10 @@ class IntegratedContentCreator:
         try:
             client = self.get_openrouter_client()
             completion = client.chat.completions.create(
+                extra_headers={
+                    "HTTP-Referer": "https://integrated-content-creator.com",
+                    "X-Title": "Integrated Content Creator"
+                },
                 model=self.model_name,
                 messages=[
                     {
@@ -524,6 +524,10 @@ class IntegratedContentCreator:
             
             client = self.get_openrouter_client()
             completion = client.chat.completions.create(
+                extra_headers={
+                    "HTTP-Referer": "https://integrated-content-creator.com",
+                    "X-Title": "Integrated Content Creator"
+                },
                 model=self.model_name,
                 messages=[
                     {
