@@ -342,11 +342,39 @@ class IntegratedContentCreator:
             
             # Step 1: Scrape HTML
             self.update_process_status("Scraping article HTML...")
-            html_content = asyncio.run(self.scrape_article_html(url))
             
+            # Try scraping with retries
+            max_retries = 3
+            html_content = None
+            last_error = None
+            
+            for attempt in range(max_retries):
+                try:
+                    self.update_process_status(f"Scraping article HTML... (Attempt {attempt + 1}/{max_retries})")
+                    html_content = asyncio.run(self.scrape_article_html(url))
+                    break  # Success, exit retry loop
+                except Exception as e:
+                    last_error = e
+                    if attempt < max_retries - 1:  # Not the last attempt
+                        self.update_process_status(f"Scraping failed, retrying... ({str(e)[:50]}...)")
+                        continue
+                    else:
+                        # Last attempt failed, try alternative approach
+                        self.update_process_status("Playwright failed, trying alternative method...")
+                        try:
+                            html_content = self.scrape_with_requests(url)
+                        except Exception as e2:
+                            raise Exception(f"All scraping methods failed. Playwright: {str(last_error)[:100]}... Requests: {str(e2)[:100]}...")
+            
+            if not html_content:
+                raise Exception("Failed to retrieve HTML content from the article")
+                
             # Step 2: Extract and process content
             self.update_process_status("Extracting article content...")
             article_text = self.extract_main_content(html_content)
+            
+            if len(article_text) < 200:  # Very short content might indicate scraping issues
+                raise Exception("Retrieved content is too short. The article might not have been properly scraped.")
             
             # Step 3: Generate summary
             self.update_process_status("Generating summary...")
@@ -365,16 +393,48 @@ class IntegratedContentCreator:
             self.update_process_status(f"Error: {error_msg}")
             self.root.after(0, lambda: messagebox.showerror("Error", f"Processing failed: {error_msg}"))
     
+    def scrape_with_requests(self, url):
+        """Fallback scraping method using requests"""
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+            }
+            
+            response = requests.get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+            return response.text
+        except Exception as e:
+            raise Exception(f"Requests scraping failed: {str(e)}")
+    
     async def scrape_article_html(self, url):
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
+            browser = await p.chromium.launch(
+                headless=True,
+                args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+            )
             page = await browser.new_page(user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                 "(KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
             ))
             
-            await page.goto(url, wait_until='networkidle')
-            await page.wait_for_timeout(3000)
+            # Set longer timeout and try multiple strategies
+            try:
+                await page.goto(url, wait_until='networkidle', timeout=60000)  # 60 seconds
+                await page.wait_for_timeout(3000)
+            except Exception as e:
+                # If networkidle fails, try with domcontentloaded
+                try:
+                    await page.goto(url, wait_until='domcontentloaded', timeout=45000)  # 45 seconds
+                    await page.wait_for_timeout(5000)  # Wait a bit longer for content
+                except Exception as e2:
+                    # Last resort - try with load event
+                    await page.goto(url, wait_until='load', timeout=30000)  # 30 seconds
+                    await page.wait_for_timeout(2000)
             
             html_content = await page.content()
             await browser.close()
